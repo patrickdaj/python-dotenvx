@@ -20,8 +20,9 @@ No milestone advances until steps 3 + 4 are green.
 
 - [x] **M0 — Scaffold**: `pyproject.toml` (uv, Typer, cryptography, pytest, pytest-cov, ruff, mypy), `src/dotenvx/` skeleton, CI, `dotenvx --version` + one passing test.
 - [x] **M1 — Crypto spike**: generate Node-dotenvx golden fixtures; prove ECIES round-trip interop; resolve §3 ⚠️VERIFY markers. Chose **coincurve + cryptography**. `crypto.py` done; bidirectional interop verified (Node↔Python).
-- [ ] **M2 — Parser (plaintext)**: `KEY=VALUE`, comments, quotes, `export`, multiline.
-- [ ] **M3 — Interpolation**: `${VAR}`, `${VAR:-default}`, `${VAR:+alt}` (command substitution deferred).
+- [x] **M2 — Parser (plaintext)**: `KEY=VALUE`, comments, quotes, `export`, multiline.
+- [x] **M3 — Interpolation**: `${VAR}`/`$VAR`, `:-`/`-`, `:+`/`+`, and `$(command)`
+  substitution (not deferred — confirmed always-on in real dotenvx).
 - [ ] **M4 — Library API**: `parse()` / `config()` + precedence / `--overload` into `os.environ`.
 - [ ] **M5 — Encrypted `.env`**: `DOTENV_PUBLIC_KEY`, `encrypted:` values, `.env.keys` resolution wired into parse/config.
 - [ ] **M6 — CLI core**: `run`, `get`, `set`.
@@ -48,4 +49,17 @@ No milestone advances until steps 3 + 4 are green.
   **Decision: option B (coincurve + cryptography).** `crypto.py` implemented
   and covered 100%; interop proven both directions against the Node CLI (incl.
   emoji/unicode). Golden fixture at `tests/fixtures/node_interop/`.
+- **M2/M3 (parsing + interpolation — RESOLVED, no decision needed)**: read
+  `@dotenvx/primitives` `src/scan.js`/`src/expand.js`/`src/evaluate.js`/
+  `src/parse.js` directly and confirmed every edge case by invoking the real
+  module (`node -e "require('@dotenvx/primitives')..."`) — see SPEC.md §2/§4
+  for the full resolved algorithm and confirmed vectors. Notable findings that
+  corrected earlier assumptions: `\"` inside double-quoted values is **not**
+  unescaped (stays literal, a long-standing `dotenv` quirk); `${VAR-x}` and
+  `${VAR:-x}` behave identically (no unset-vs-empty distinction); command
+  substitution `$(...)` runs **unconditionally by default** (not opt-in) with
+  errors silently swallowed. `parser.py` ports `scan`/`expand`/`evaluate`
+  faithfully (line-by-line comments cite the JS source); `resolve()` is the
+  Python equivalent of `parseWithRing` (minus decryption, which M5 wires in).
+  `_PLAIN` key semantics deliberately deferred to M5.
 - (log resolved ⚠️VERIFY answers and any dependency changes here as they land)

@@ -35,25 +35,45 @@ files before relying on them. Upstream reference:
 
 ### 2.1 `.env` (plaintext or encrypted)
 
-A line-oriented file of `KEY=VALUE` pairs. Parsing rules to match dotenv/dotenvx:
+**RESOLVED** by reading `@dotenvx/primitives` 1.7.1 source (`src/scan.js`,
+`src/parse.js`) and confirming empirically against the real CLI/module.
 
-- Blank lines and lines beginning with `#` are ignored.
-- `KEY=VALUE`; whitespace around `=` and around the value is trimmed (unless
-  quoted).
-- Values may be unquoted, single-quoted, or double-quoted.
-  - **Double quotes**: support escape sequences (`\n`, `\t`, `\"`, …) and
-    variable expansion (see §4).
-  - **Single quotes**: literal; no expansion, no escapes.
-  - **Unquoted**: trailing inline `# comment` is stripped; expansion applies.
-- Multiline values via quoted strings spanning lines. **⚠️ VERIFY** exact
-  multiline rules against dotenvx (it extends dotenv here).
-- `export KEY=VALUE` — leading `export ` is accepted and ignored. **⚠️ VERIFY**.
+Line regex (JS, `dotenv` + dotenvx's own `scan.js` — identical):
+```
+^\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*?|:\s+?)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?\s*(?:#.*)?$
+```
+applied per-line (multiline mode). Key = `[\w.-]+`. Separator is `=` or a
+YAML-style `: ` (colon + whitespace).
+
+- Blank lines and lines not matching the key pattern (e.g. `# comment`) are
+  skipped — there's no special-cased "comment line"; it's simply a non-match.
+- `export KEY=VALUE` — leading `export ` (+whitespace) is an accepted,
+  ignored prefix. **Confirmed.**
+- Value trimmed; a trailing unquoted `# comment` is stripped for *all* value
+  types (quoted or not), since the trailing `(?:#.*)?` applies after the
+  matched value.
+- Quoting, by first non-whitespace char of the raw value: `'`, `"`, `` ` ``, or
+  none (bare/unquoted).
+  - **Multiline**: quoted values may literally contain newlines — the regex's
+    `[^']`/`[^"]`/`` [^`] `` classes match `\n` directly, no special handling
+    needed. **Confirmed** — this is the entire multiline mechanism.
+  - **Double-quoted**: after stripping the outer quotes, `\n`→newline,
+    `\r`→CR, **`\t`→tab** are expanded. **`\"` is NOT unescaped** — it stays
+    as the literal two characters `\"` in the value (its only role in the
+    regex is letting an escaped quote not terminate the string early).
+    **Confirmed empirically** — a long-standing quirk inherited from `dotenv`.
+  - **Single-quoted**: fully literal — no escape expansion, no interpolation
+    (§4 skips values where `quote == "'"`).
+  - **Unquoted**: interpolation applies (§4); no escape expansion beyond what
+    §4's `\$`→`$` unescaping does.
+- Escaping: only `\$` is meaningful (see §4); there is no general backslash
+  escaping of other characters.
 
 An **encrypted** `.env` additionally contains:
 - A `DOTENV_PUBLIC_KEY[_<ENV>]=<hex>` line (see §3).
 - Values that are ciphertext strings prefixed `encrypted:` (see §3.3).
-- Optionally `_PLAIN`-suffixed keys holding cleartext overrides. **⚠️ VERIFY**
-  exact semantics of the `_PLAIN` suffix.
+- `_PLAIN`-suffixed keys as a cleartext escape hatch (`isPlainKey.js`:
+  `/_PLAIN$/`). **⚠️ VERIFY** exact read/write semantics — deferred to M5.
 
 ### 2.2 `.env.keys`
 
@@ -134,21 +154,66 @@ For a given key:
 
 ## 4. Interpolation / expansion
 
-Applied to unquoted and double-quoted values (not single-quoted):
+**RESOLVED** by reading `@dotenvx/primitives` `src/expand.js`, `src/evaluate.js`,
+and `src/parse.js` (`parseWithRing`), confirmed empirically. Applies to
+unquoted and double-quoted values; **skipped entirely when `quote == "'"`**
+(single-quoted is fully literal).
 
-- `${VAR}` / `$VAR` — substitute from already-parsed vars, then process env.
-  **⚠️ VERIFY** precedence (file vs. process env) and whether `$VAR` (braceless)
-  is supported.
-- `${VAR:-default}` — use `default` if `VAR` is unset **or empty**.
-- `${VAR-default}` — use `default` if `VAR` is **unset** only. **⚠️ VERIFY**
-  support.
-- `${VAR:+alt}` — use `alt` if `VAR` is set (and non-empty).
-- **Command substitution**: `$(command)` (and inside defaults, e.g.
-  `${VAR:-$(whoami)}`) is executed via the shell and replaced with stdout.
-  **⚠️ VERIFY** whether this is on by default, opt-in, and how errors are
-  handled. Security note: document that command substitution runs shell
-  commands from the `.env` file.
-- Escaping: `\$` produces a literal `$`. **⚠️ VERIFY**.
+### Per-value pipeline (order matters), from `parseWithRing`:
+1. **Precedence** (§5): if not `--overload` and the name already exists in
+   `process_env`, the file value is replaced by the **existing process_env
+   value** before anything below runs.
+2. **Decryption** (§3), if the value is `encrypted:…`.
+3. **Command substitution** — attempted only if: value isn't
+   `encrypted:…`, `quote != "'"`, and (the name isn't in `process_env` **or**
+   `process_env[name] == parsedValue` at this point). Regex `\$\(([^)]+(?:\)[^(]*)*)\)`
+   finds all `$(...)` spans; each is run via a subprocess shell
+   (`execSync(command, {env: {...process_env, ...running_parsed}})`) and
+   replaced with stdout, **trailing `\r`/`\n` chomped**. **Runs unconditionally
+   by default — not opt-in.** Errors are **caught and swallowed**: on failure
+   the value is left as its pre-substitution string (no exception propagates).
+   Security implication: a malicious `.env` can execute arbitrary shell
+   commands merely by being loaded — document this prominently.
+4. **`${VAR}` / `$VAR` expansion** — attempted only if step 3 did **not**
+   change the value, and only if `quote != "'"` and (`process_env[name]` is
+   falsy **or** `--overload`). Regex:
+   `(?<!\\)\$\{([^{}]+)\}|(?<!\\)\$([A-Za-z_][A-Za-z0-9_]*)` — both braced
+   and braceless forms are supported; a preceding `\` suppresses expansion of
+   that occurrence.
+   - Lookup env is `{**running_parsed, **process_env}` by default (existing
+     process env wins over same-file earlier vars), or
+     `{**process_env, **running_parsed}` under `--overload` (file wins).
+   - Operator inside the braces/name — split on the *first* of `:+`, `+`,
+     `:-`, `-` (checked in that order):
+     - `:+` / `+` (**no behavioral difference between the two**): result is
+       the text after the operator if the var is **truthy** (set and
+       non-empty) in the lookup env, else `""`.
+     - `:-` / `-` (**no behavioral difference**): result is the var's value if
+       truthy, else the text after the operator (i.e. unset **and** empty
+       string both trigger the default — dotenvx does not distinguish
+       `${VAR-x}` from `${VAR:-x}`).
+     - No operator: plain substitution; `""` if unset.
+   - A self-reference guard (`result === env[name]` after substitution) and a
+     "literal contains an unexpanded pattern" guard (for a same-named
+     single-quoted var whose raw text still looks like `${...}`) stop the
+     re-scan loop to avoid infinite loops on self-referential/literal values.
+   - After expansion (whether or not a substitution happened), `\$` is
+     globally replaced with a literal `$` (`resolveEscapeSequences`). This is
+     the *only* place backslash-escaping happens for interpolation, and it
+     runs even when quote is `'` is false but no `${...}`/`$VAR` was present.
+5. Result becomes `running_parsed[name]` (visible to later lines' expansion)
+   and the final `parsed[name]` (returned value).
+
+### Confirmed test vectors (see `tests/test_interpolation.py`)
+```
+A='raw ${NOTHING} literal'        # single-quoted -> no expansion
+B="${A}"                          # -> value of A (unquoted/double allowed)
+C="${UNSET:-fallback}"            # -> "fallback"
+D="${UNSET:+alt}"                 # -> ""            (UNSET is falsy)
+E="${A:+alt}"                     # -> "alt"          (A is truthy)
+F="\${ESCAPED}"                   # -> "${ESCAPED}"   (escaped, not expanded)
+G="$(echo cmd-sub-works)"         # -> "cmd-sub-works"
+```
 
 ---
 
@@ -156,9 +221,10 @@ Applied to unquoted and double-quoted values (not single-quoted):
 
 - Default file is `.env` in the cwd.
 - `-f <path>` may be repeated; multiple files load in order.
-- **Precedence**: by default an already-set variable is **not** overwritten
-  (first-wins / existing `os.environ` wins). `--overload` (a.k.a. `--override`)
-  makes later sources win. **⚠️ VERIFY** exact default and flag names.
+- **Precedence** (confirmed empirically, §4 step 1): by default, if a name
+  already exists in `process_env` (`os.environ`), that value wins over the
+  file's — the file value is discarded before interpolation even runs.
+  `--overload` flips this so the file's (interpolated) value wins.
 - `--convention <name>` applies a framework loading pattern (e.g. `nextjs`,
   `flow`) that expands to a specific ordered set of files. **⚠️ VERIFY** the
   supported conventions and their file orders.
