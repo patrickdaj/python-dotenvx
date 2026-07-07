@@ -19,7 +19,7 @@ No milestone advances until steps 3 + 4 are green.
 ## Milestones
 
 - [x] **M0 — Scaffold**: `pyproject.toml` (uv, Typer, cryptography, pytest, pytest-cov, ruff, mypy), `src/dotenvx/` skeleton, CI, `dotenvx --version` + one passing test.
-- [ ] **M1 — Crypto spike**: generate Node-dotenvx golden fixtures; prove ECIES round-trip interop; resolve §3 ⚠️VERIFY markers; confirm/replace `cryptography`.
+- [x] **M1 — Crypto spike**: generate Node-dotenvx golden fixtures; prove ECIES round-trip interop; resolve §3 ⚠️VERIFY markers. Chose **coincurve + cryptography**. `crypto.py` done; bidirectional interop verified (Node↔Python).
 - [ ] **M2 — Parser (plaintext)**: `KEY=VALUE`, comments, quotes, `export`, multiline.
 - [ ] **M3 — Interpolation**: `${VAR}`, `${VAR:-default}`, `${VAR:+alt}` (command substitution deferred).
 - [ ] **M4 — Library API**: `parse()` / `config()` + precedence / `--overload` into `os.environ`.
@@ -45,6 +45,7 @@ No milestone advances until steps 3 + 4 are green.
       no pycryptodome). Proven byte-exact.
     - **A**: `eciespy` (`ecies`) — zero crypto code, pulls `coincurve` +
       `pycryptodome`. Proven byte-exact with its default config.
-  ⏳ Awaiting user's dependency choice before finalizing `crypto.py` + interop
-  test. Golden fixture committed at `tests/fixtures/node_interop/`.
+  **Decision: option B (coincurve + cryptography).** `crypto.py` implemented
+  and covered 100%; interop proven both directions against the Node CLI (incl.
+  emoji/unicode). Golden fixture at `tests/fixtures/node_interop/`.
 - (log resolved ⚠️VERIFY answers and any dependency changes here as they land)
