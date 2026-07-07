@@ -11,6 +11,9 @@ import re
 import subprocess
 from dataclasses import dataclass
 
+from dotenvx.crypto import decrypt as _decrypt
+from dotenvx.crypto import is_encrypted
+
 _LINE = re.compile(
     r"^\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*|:\s+)"
     r"(\s*'(?:\\'|[^'])*'|\s*\"(?:\\\"|[^\"])*\"|\s*`(?:\\`|[^`])*`|[^#\r\n]+)?"
@@ -159,11 +162,15 @@ def resolve(
     *,
     process_env: dict[str, str] | None = None,
     overload: bool = False,
+    private_key: str | None = None,
 ) -> dict[str, str]:
     """Parse + interpolate ``src`` the way dotenvx's ``parseWithRing`` does.
 
-    Does not decrypt ``encrypted:`` values — see ``crypto.py`` / M5 for that
-    layer, which sits between steps 1 and 2 of SPEC.md §4.
+    ``private_key`` decrypts ``encrypted:`` values (SPEC.md §3.4); it may hold
+    multiple comma-separated candidates, tried in order (dotenvx's
+    ``decryptKeyValue.js``). A value that stays encrypted (no matching key)
+    passes through unchanged — command substitution and expansion are then
+    skipped for it, matching dotenvx's ``encryptedPrefixed`` gate.
     """
     process_env = {} if process_env is None else process_env
     running_parsed: dict[str, str] = {}
@@ -176,8 +183,21 @@ def resolve(
         if not overload and name in process_env:
             value = process_env[name]
 
+        if is_encrypted(value) and private_key:
+            for candidate in private_key.split(","):
+                try:
+                    value = _decrypt(candidate.strip(), value)
+                    break
+                except Exception:  # noqa: BLE001 - try next candidate key, as dotenvx does
+                    continue
+
+        encrypted_prefixed = is_encrypted(value)
         evaled = False
-        if quote != "'" and (name not in process_env or process_env.get(name) == value):
+        if (
+            not encrypted_prefixed
+            and quote != "'"
+            and (name not in process_env or process_env.get(name) == value)
+        ):
             try:
                 new_value = evaluate_command_substitution(
                     value, process_env=process_env, running_parsed=running_parsed
@@ -188,7 +208,12 @@ def resolve(
                 evaled = True
                 value = new_value
 
-        if not evaled and quote != "'" and (not process_env.get(name) or overload):
+        if (
+            not encrypted_prefixed
+            and not evaled
+            and quote != "'"
+            and (not process_env.get(name) or overload)
+        ):
             value = expand_value(
                 value,
                 process_env=process_env,

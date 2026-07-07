@@ -72,8 +72,16 @@ YAML-style `: ` (colon + whitespace).
 An **encrypted** `.env` additionally contains:
 - A `DOTENV_PUBLIC_KEY[_<ENV>]=<hex>` line (see §3).
 - Values that are ciphertext strings prefixed `encrypted:` (see §3.3).
-- `_PLAIN`-suffixed keys as a cleartext escape hatch (`isPlainKey.js`:
-  `/_PLAIN$/`). **⚠️ VERIFY** exact read/write semantics — deferred to M5.
+- `_PLAIN`-suffixed keys as a cleartext escape hatch. **RESOLVED**: it's a
+  pure key-*naming* convention, nothing more — any key whose name matches
+  `/_PLAIN$/` (`isPlainKey.js`) is simply skipped by `encrypt`/`set`, which
+  leave its value untouched (`encrypt.js`: `if (isDotenvPublicKey(key) ||
+  isPlainKey(key)) { /* don't encrypt */ }`; `set.js`: same check forces
+  `noEncrypt`). There's no pairing with a same-named encrypted key — it's
+  just "this literal key is never encrypted." Read-side, a `_PLAIN` key needs
+  no special handling at all: it was never `encrypted:`-prefixed, so parsing
+  treats it like any other plaintext key. Relevant to CLI `encrypt`/`set`
+  (M7), not to decryption (M5).
 
 ### 2.2 `.env.keys`
 
@@ -141,12 +149,13 @@ Each encrypted value in `.env` is `encrypted:` + **standard base64** (with `+`,
 around the value: `K=encrypted:…`, `K="encrypted:…"`, `K='encrypted:…'`.
 
 ### 3.4 Decryption resolution
-For a given key:
-1. If a `_PLAIN` override / plaintext value is present, use it. **⚠️ VERIFY**
-   exact `_PLAIN` semantics.
-2. Else if the value is `encrypted:…`, find the matching
-   `DOTENV_PRIVATE_KEY[_<ENV>]` and decrypt.
-3. Missing private key → dotenvx raises a `missingPrivateKey` error; a wrong key
+**RESOLVED and implemented** (`keys.py` + `parser.resolve`'s `private_key`
+param), confirmed end-to-end against the real Node-produced fixture. For a
+given key:
+1. If the value is `encrypted:…`, find the matching
+   `DOTENV_PRIVATE_KEY[_<ENV>]` (via `keys.keynames` + `keys.find_private_key`
+   — §2.3) and decrypt. (`_PLAIN` is unrelated to decryption — see §2.1.)
+2. Missing private key → dotenvx raises a `missingPrivateKey` error; a wrong key
    raises `wrongPrivateKey` (GCM auth failure). `--ignore`/non-strict behavior
    **⚠️ VERIFY**.
 
@@ -343,11 +352,19 @@ All functions fully type-annotated; return types stable across CLI and library.
 Consolidated list of things to resolve before/while implementing (all the
 **⚠️ VERIFY** markers, plus):
 
-1. Exact ECIES parameters and wire format (§3) — **highest priority**; blocks
-   all crypto.
-2. `_PLAIN` suffix semantics and precedence (§2.1, §3.4).
-3. Command-substitution default (on/off) and its security posture (§4).
-4. Default precedence + exact `--overload`/`--override` naming (§5).
-5. Which conventions to support in v1 (§5).
-6. python-dotenv compatibility surface — how far to go (§7).
-7. `.env.vault` legacy support — in or out (§1).
+**Resolved** (crossed off as milestones landed — see PLAN.md for how each was
+confirmed): ECIES parameters/wire format (§3, M1); `_PLAIN` semantics (§2.1,
+M5 research — it's just a naming convention); command-substitution default
+(§4, M3 — on by default, errors swallowed); default precedence /
+`--overload` naming (§5, M3/M4 — confirmed against the real CLI).
+
+Still open:
+
+1. `--ignore`/non-strict behavior for decryption errors (§3.4) — CLI-level,
+   relevant once `run`/`--strict` land (M6).
+2. Which `--convention` presets to support in v1 (§5) — deferred until CLI
+   flag work (M6+).
+3. python-dotenv compatibility surface — how far to go (§7) — decide when
+   implementing the library API's polish pass (M9).
+4. `.env.vault` legacy support — in or out (§1) — decide if/when a parity
+   target needs it; default remains skip.

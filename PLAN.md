@@ -24,7 +24,7 @@ No milestone advances until steps 3 + 4 are green.
 - [x] **M3 — Interpolation**: `${VAR}`/`$VAR`, `:-`/`-`, `:+`/`+`, and `$(command)`
   substitution (not deferred — confirmed always-on in real dotenvx).
 - [x] **M4 — Library API**: `parse()` / `config()` + precedence / `--overload` into `os.environ`.
-- [ ] **M5 — Encrypted `.env`**: `DOTENV_PUBLIC_KEY`, `encrypted:` values, `.env.keys` resolution wired into parse/config.
+- [x] **M5 — Encrypted `.env`**: `DOTENV_PUBLIC_KEY`, `encrypted:` values, `.env.keys` resolution wired into parse/config.
 - [ ] **M6 — CLI core**: `run`, `get`, `set`.
 - [ ] **M7 — CLI crypto**: `encrypt`, `decrypt`, `keypair`.
 - [ ] **M8 — CLI utilities**: `ls`, `gitignore`, `precommit`, `prebuild`.
@@ -68,4 +68,19 @@ No milestone advances until steps 3 + 4 are green.
   (`dotenvx run -f a -f b`). `environ` param defaults to `os.environ` but is
   injectable for tests. `get()`/`set()` intentionally deferred — no
   half-built stubs; they land with the CLI commands that need them (M6).
+- **M5 (encrypted `.env`)**: read dotenvx's `conventions/keynames.js` +
+  `environment.js` + `resolvers/envs.js` + `helpers/cryptography/*` directly.
+  `keys.py` ports `keynames()` (content-first: an existing
+  `DOTENV_PUBLIC_KEY*` line in the file wins over the filename convention)
+  and `find_private_key()` (checks `environ` first — this is what lets
+  `.env.keys` be `chmod a-r` — else a colocated `.env.keys`, else an explicit
+  `env_keys_path`). `resolve()` gained a `private_key` param (comma-separated
+  candidates tried in order, matching `decryptKeyValue.js`); a value that
+  can't be decrypted passes through as `encrypted:...` and command-sub/expand
+  are skipped for it (matches the real `encryptedPrefixed` gate). `config()`
+  now decrypts automatically and reports `could not decrypt X, Y` in `errors`
+  for anything left encrypted. Verified end-to-end against the real M1 Node
+  fixture (`tests/test_encrypted_config.py`), not just unit-level crypto.
+  `_PLAIN` resolved as a pure naming convention (any key ending `_PLAIN` is
+  skipped by `encrypt`/`set` — not implemented yet since those are M7).
 - (log resolved ⚠️VERIFY answers and any dependency changes here as they land)

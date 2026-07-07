@@ -11,6 +11,8 @@ from collections.abc import MutableMapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from dotenvx.crypto import is_encrypted
+from dotenvx.keys import find_private_key, keynames
 from dotenvx.parser import resolve
 
 __all__ = ["__version__", "ConfigResult", "config", "parse"]
@@ -51,14 +53,21 @@ def config(
     overload: bool = False,
     encoding: str = "utf-8",
     environ: MutableMapping[str, str] | None = None,
+    env_keys_path: str | os.PathLike[str] | None = None,
 ) -> ConfigResult:
-    """Load, decrypt (once M5 lands), and interpolate ``.env`` file(s) into ``environ``.
+    """Load, decrypt, and interpolate ``.env`` file(s) into ``environ``.
 
     ``path`` may be repeated (a list) to mirror dotenvx's repeatable ``-f``
     flag: earlier files win over later ones unless ``overload`` is set, in
     which case later files win (SPEC.md §5, confirmed against the real CLI).
     ``environ`` defaults to ``os.environ`` (mutated in place, like Node's
     ``process.env``); pass a plain ``dict`` in tests to avoid touching it.
+
+    Encrypted (``encrypted:``) values are decrypted using the private key
+    named for each file by :func:`dotenvx.keys.keynames` — from ``environ``
+    if present there, else a colocated ``.env.keys`` (or ``env_keys_path`` if
+    given). A value that can't be decrypted is left as-is and reported in
+    ``errors`` (SPEC.md §3.4).
     """
     paths = [path] if isinstance(path, (str, os.PathLike)) else list(path)
     target = os.environ if environ is None else environ
@@ -72,7 +81,24 @@ def config(
 
         before = dict(target)
         src = file_path.read_text(encoding=encoding)
-        file_parsed = resolve(src, process_env=dict(target), overload=overload)
+
+        names = keynames(file_path, src)
+        private_key = find_private_key(
+            file_path,
+            names.private_key_name,
+            process_env=target,
+            env_keys_path=env_keys_path,
+        )
+
+        file_parsed = resolve(
+            src, process_env=dict(target), overload=overload, private_key=private_key
+        )
+
+        unresolved = [
+            name for name, value in file_parsed.items() if is_encrypted(value)
+        ]
+        if unresolved:
+            result.errors.append(f"could not decrypt {', '.join(unresolved)}")
 
         for name, value in file_parsed.items():
             result.parsed[name] = value
