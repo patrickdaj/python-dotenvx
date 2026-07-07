@@ -5,12 +5,12 @@ anywhere, multiple environments, and built-in encryption. Files and keys are
 byte-for-byte interoperable with the Node.js `dotenvx` CLI: a `.env` file
 encrypted by Node `dotenvx` decrypts with `python-dotenvx`, and vice versa.
 
-> **Status: pre-alpha, under active construction.** Core parsing,
-> interpolation, encryption, and the `run`/`get` CLI commands work today (see
-> [`PLAN.md`](./PLAN.md) for what's built vs. in progress). `set`,
-> `encrypt`/`decrypt`/`keypair`, and the remaining CLI commands are still
-> being implemented. See [`SPEC.md`](./SPEC.md) for the full behavior
-> contract and [`CLAUDE.md`](./CLAUDE.md) for the development setup.
+> **Status: pre-alpha, under active construction.** Parsing, interpolation,
+> encryption, and the `run`/`get`/`set`/`encrypt`/`decrypt`/`keypair` CLI
+> commands all work today (see [`PLAN.md`](./PLAN.md) for what's built vs. in
+> progress — `ls`/`gitignore`/`precommit`/`prebuild` are next). See
+> [`SPEC.md`](./SPEC.md) for the full behavior contract and
+> [`CLAUDE.md`](./CLAUDE.md) for the development setup.
 
 ## Install
 
@@ -102,6 +102,34 @@ look for the private key in the environment first (so `.env.keys` can be
 `chmod a-r` and still work), then in a `.env.keys` file next to the `.env`
 file being loaded. The scheme is ECIES over secp256k1 (HKDF-SHA256 +
 AES-256-GCM) — see [`SPEC.md` §3](./SPEC.md) for the full wire format.
+
+Set an encrypted value directly — this bootstraps a keypair and `.env.keys`
+the first time it's called against a file with none yet:
+
+```bash
+uv run dotenvx set API_KEY abc123        # encrypted by default
+uv run dotenvx set DEBUG true --plain    # stored in plaintext instead
+```
+
+Encrypt or decrypt every value in an existing file in place:
+
+```bash
+uv run dotenvx encrypt      # plaintext values -> encrypted:...
+uv run dotenvx decrypt      # encrypted:... -> plaintext
+uv run dotenvx keypair      # -> {"DOTENV_PUBLIC_KEY": "...", "DOTENV_PRIVATE_KEY": "..."}
+```
+
+Same from Python:
+
+```python
+import dotenvx
+from dotenvx import transforms
+
+dotenvx.set("API_KEY", "abc123")           # writes .env + .env.keys
+transforms.encrypt_file(".env")            # encrypt every plaintext value in place
+transforms.decrypt_file(".env")            # inverse
+transforms.get_keypair(".env")             # KeyPairEntry(public_key=..., private_key=...)
+```
 
 ## Development
 

@@ -12,7 +12,7 @@ import subprocess
 import typer
 
 import dotenvx
-from dotenvx import __version__
+from dotenvx import __version__, transforms
 
 app = typer.Typer(
     name="dotenvx",
@@ -119,6 +119,107 @@ def get_command(
 
     if result.errors:
         raise typer.Exit(1)
+
+
+_ENV_KEYS_FILE_OPTION = typer.Option(
+    None,
+    "-fk",
+    "--env-keys-file",
+    help="Custom .env.keys path (default: colocated .env.keys).",
+)
+
+
+@app.command(name="set")
+def set_command(
+    key: str = typer.Argument(..., help="Variable name."),  # noqa: B008
+    value: str = typer.Argument(..., help="Value to set."),  # noqa: B008
+    env_file: list[str] = _ENV_FILE_OPTION,
+    plain: bool = typer.Option(
+        False, "--plain", help="Store the value in plaintext (no encryption)."
+    ),
+    env_keys_file: str | None = _ENV_KEYS_FILE_OPTION,
+) -> None:
+    """Add/update KEY=VALUE in .env file(s), encrypting by default (SPEC.md §6)."""
+    changed_files = []
+    for path in env_file:
+        result = dotenvx.set(
+            key, value, path=path, encrypt=not plain, env_keys_path=env_keys_file
+        )
+        if result.changed:
+            changed_files.append(path)
+
+    verb = "set" if plain else "encrypted"
+    if changed_files:
+        typer.echo(f"dotenvx: {verb} {key} ({', '.join(changed_files)})")
+    else:
+        typer.echo(f"dotenvx: no change ({', '.join(env_file)})")
+
+
+@app.command(name="encrypt")
+def encrypt_command(
+    env_file: list[str] = _ENV_FILE_OPTION,
+    env_keys_file: str | None = _ENV_KEYS_FILE_OPTION,
+) -> None:
+    """Encrypt every plaintext value in .env file(s) in place (SPEC.md §6)."""
+    changed_files = []
+    for path in env_file:
+        result = transforms.encrypt_file(path, env_keys_path=env_keys_file)
+        if result.changed:
+            changed_files.append(path)
+
+    if changed_files:
+        typer.echo(f"dotenvx: encrypted ({', '.join(changed_files)})")
+    else:
+        typer.echo(f"dotenvx: no change ({', '.join(env_file)})")
+
+
+@app.command(name="decrypt")
+def decrypt_command(
+    env_file: list[str] = _ENV_FILE_OPTION,
+    env_keys_file: str | None = _ENV_KEYS_FILE_OPTION,
+) -> None:
+    """Decrypt every ``encrypted:`` value in .env file(s) in place (SPEC.md §6)."""
+    changed_files = []
+    for path in env_file:
+        result = transforms.decrypt_file(path, env_keys_path=env_keys_file)
+        if result.changed:
+            changed_files.append(path)
+
+    if changed_files:
+        typer.echo(f"dotenvx: decrypted ({', '.join(changed_files)})")
+    else:
+        typer.echo(f"dotenvx: no change ({', '.join(env_file)})")
+
+
+@app.command(name="keypair")
+def keypair_command(
+    key: str | None = typer.Argument(  # noqa: B008
+        None, help="A specific key name (e.g. DOTENV_PRIVATE_KEY); omit for all."
+    ),
+    env_file: list[str] = _ENV_FILE_OPTION,
+    env_keys_file: str | None = _ENV_KEYS_FILE_OPTION,
+    format_: str = typer.Option(
+        "json", "--format", help="Output format: json|shell|colon."
+    ),
+    pretty_print: bool = typer.Option(
+        False, "--pretty-print", "--pp", help="Pretty-print JSON output."
+    ),
+) -> None:
+    """Print the public/private keypair for .env file(s) (SPEC.md §6)."""
+    out: dict[str, str | None] = {}
+    for path in env_file:
+        kp = transforms.get_keypair(path, env_keys_path=env_keys_file)
+        out[kp.public_key_name] = kp.public_key
+        out[kp.private_key_name] = kp.private_key
+
+    if key is not None:
+        typer.echo(out.get(key) or "")
+    elif format_ == "shell":
+        typer.echo(" ".join(f"{k}={v or ''}" for k, v in out.items()))
+    elif format_ == "colon":
+        typer.echo(" ".join(f"{k}:{v or ''}" for k, v in out.items()))
+    else:
+        typer.echo(json.dumps(out, indent=2 if pretty_print else None))
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 """python-dotenvx — a Python port of dotenvx.
 
-Public API surface grows across milestones (see PLAN.md); ``get``/``set``
-land alongside their CLI commands. For now: ``parse`` and ``config``.
+Public API surface grows across milestones (see PLAN.md).
 """
 
 from __future__ import annotations
@@ -14,8 +13,9 @@ from pathlib import Path
 from dotenvx.crypto import is_encrypted
 from dotenvx.keys import find_private_key, keynames
 from dotenvx.parser import resolve
+from dotenvx.transforms import SetResult, set_value
 
-__all__ = ["__version__", "ConfigResult", "config", "parse"]
+__all__ = ["ConfigResult", "SetResult", "__version__", "config", "get", "parse", "set"]
 
 __version__ = "0.0.1"
 
@@ -109,3 +109,34 @@ def config(
                 target[name] = value
 
     return result
+
+
+def get(
+    key: str,
+    *,
+    path: str | os.PathLike[str] | Sequence[str | os.PathLike[str]] = ".env",
+    overload: bool = False,
+) -> str | None:
+    """Read one decrypted value from ``path`` without touching ``os.environ``.
+
+    Returns ``None`` if ``key`` isn't set (SPEC.md §7).
+    """
+    result = config(path, overload=overload, environ={})
+    return result.parsed.get(key)
+
+
+def set(  # noqa: A001 - matches dotenvx's own `set` name (SPEC.md §7)
+    key: str,
+    value: str,
+    *,
+    path: str | os.PathLike[str] = ".env",
+    encrypt: bool = True,
+    env_keys_path: str | os.PathLike[str] | None = None,
+) -> SetResult:
+    """Add/update ``key=value`` in the ``.env`` file at ``path`` (SPEC.md §6/§7).
+
+    Encrypted by default (bootstrapping a keypair on first use); pass
+    ``encrypt=False`` for a plaintext value, or use a key name ending in
+    ``_PLAIN`` for the same effect (dotenvx's own convention).
+    """
+    return set_value(path, key, value, encrypt=encrypt, env_keys_path=env_keys_path)

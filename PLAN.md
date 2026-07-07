@@ -25,8 +25,8 @@ No milestone advances until steps 3 + 4 are green.
   substitution (not deferred — confirmed always-on in real dotenvx).
 - [x] **M4 — Library API**: `parse()` / `config()` + precedence / `--overload` into `os.environ`.
 - [x] **M5 — Encrypted `.env`**: `DOTENV_PUBLIC_KEY`, `encrypted:` values, `.env.keys` resolution wired into parse/config.
-- [~] **M6 — CLI core**: `run`, `get` done; `set` not yet (see notes below).
-- [ ] **M7 — CLI crypto**: `encrypt`, `decrypt`, `keypair`.
+- [x] **M6 — CLI core**: `run`, `get`, `set`.
+- [x] **M7 — CLI crypto**: `encrypt`, `decrypt`, `keypair`.
 - [ ] **M8 — CLI utilities**: `ls`, `gitignore`, `precommit`, `prebuild`.
 - [ ] **M9 — Compat & polish**: python-dotenv shim, docs, full-suite green.
 
@@ -83,7 +83,7 @@ No milestone advances until steps 3 + 4 are green.
   fixture (`tests/test_encrypted_config.py`), not just unit-level crypto.
   `_PLAIN` resolved as a pure naming convention (any key ending `_PLAIN` is
   skipped by `encrypt`/`set` — not implemented yet since those are M7).
-- **M6 (CLI core, partial)**: read `cli/actions/run.js`, `get.js`, and
+- **M6 (CLI core)**: read `cli/actions/run.js`, `get.js`, and
   `helpers/executeCommand.js` directly. `run`: `-- command` via Typer's
   `list[str] | None` argument + `ignore_unknown_options=True`; child process
   inherits the (already-mutated) `os.environ` implicitly — no explicit `env=`
@@ -97,10 +97,37 @@ No milestone advances until steps 3 + 4 are green.
   pytest (`test_cli_run_get.py`, note: subprocess-inherited stdout needs
   `capfd`, not Typer's `CliRunner.result.stdout`, which only captures Python-
   level `sys.stdout`) and manually against real command execution.
-  **`set` deferred** — it requires an "upsert" that mutates a `.env` file's
-  raw text in place (add/update one `KEY=value` line while preserving
-  comments/formatting elsewhere, generating a keypair + `.env.keys` entry on
-  first encryption). That's a distinct chunk of work from `run`/`get`; will
-  implement + gate it in the next pass alongside/before M7's `encrypt`/
-  `decrypt` (which need the same upsert machinery).
+- **M6/M7 (`set`/`encrypt`/`decrypt`/`keypair`)**: read `src/upsert.js`
+  (primitives), `helpers/cryptography/mutateSrc.js`/`mutateKeysSrc.js`,
+  `helpers/prependPublicKey.js`/`preserveShebang.js`, and the
+  `set`/`encrypt`/`decrypt` transforms + `resolvers/keypair.js` directly.
+  New `transforms.py`: `upsert()` (regex replace-in-place-or-append, using
+  Python's `re.escape` instead of hand-porting JS's custom escaper — same
+  result, less code; duplicate keys handled via the same NUL-byte-placeholder
+  two-phase swap dotenvx uses, so ambiguous identical-value duplicates still
+  resolve correctly), `prepend_public_key()`/`mutate_keys_src()` (banner text
+  confirmed **byte-for-byte** against a real `dotenvx set` run), `set_value()`/
+  `encrypt_file()`/`decrypt_file()`/`get_keypair()` orchestrating file I/O +
+  crypto + keynames (no Armor/interactive-prompt support — file-based private
+  key storage only, per SPEC §1 non-goals). All four CLI commands verified
+  manually against real command execution (bootstrap → get → encrypt →
+  keypair → decrypt, byte-identical banner output), and 3 dedicated tests
+  round-trip through the **real Node CLI both directions** (Python `set`/
+  `encrypt` output read by Node; Node `set` output read by Python).
+  Known, deliberately-skipped gap: `upsert.js` has an obscure extra rule
+  preserving blank lines that trail a key with an empty value — not
+  replicated (documented in `transforms.py`'s docstring).
+  Confirmed-faithful upstream quirk (not a bug): calling `set()` against a
+  brand-new file where the given value happens to textually equal the
+  key's existing raw value skips the file write entirely, even though a
+  keypair may have just been bootstrapped in memory — traced this exactly
+  to `actions/set.js`'s `if (processedEnv.changed)` gate, so it's preserved
+  as-is rather than "fixed" past parity.
+  **Test-isolation finding**: `dotenvx run`/`config()` correctly mutate the
+  real `os.environ` by design (that's the point of `run`); this leaked
+  variables across tests in the same pytest process because
+  `monkeypatch.setenv/delenv` only auto-revert changes made *through
+  monkeypatch*, not direct `os.environ` mutations from production code.
+  Fixed with an autouse `tests/conftest.py` fixture that snapshots/restores
+  `os.environ` around every test — not a product bug, a test-hygiene gap.
 - (log resolved ⚠️VERIFY answers and any dependency changes here as they land)
