@@ -1,0 +1,7 @@
+{
+  "HELLO": "World",
+  "MULTI": "line one\nline two",
+  "API_KEY": "sk-test-1234567890",
+  "EMPTY": "",
+  "QUOTED": "single quoted value"
+}

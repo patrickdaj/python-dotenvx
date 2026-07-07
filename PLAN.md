@@ -34,4 +34,17 @@ No milestone advances until steps 3 + 4 are green.
 - **M0**: mypy's analysis target set to 3.10 (tool floor); runtime 3.9 support is
   preserved via `requires-python>=3.9` and the CI 3.9 matrix run. Build backend:
   hatchling. `dotenvx` console script → `dotenvx.cli:app`.
+- **M1 (crypto — RESOLVED)**: reverse-engineered from dotenvx 2.1.5 /
+  `@dotenvx/primitives` 1.7.1 and proven by round-tripping Node ciphertext.
+  Scheme fully documented in SPEC §3: secp256k1 ECIES, uncompressed ephemeral
+  key, HKDF-SHA256 over `eph_pub(65)‖shared_point(65)`, AES-256-GCM 16B nonce,
+  blob = `eph(65)‖nonce(16)‖tag(16)‖ct` (tag BEFORE ct). Key finding: pyca
+  `cryptography` alone is insufficient — full-point secp256k1 ECDH needs
+  **`coincurve`**. Two proven dependency options (see DECISION below):
+    - **B (recommended)**: `coincurve` + pyca `cryptography` (~15 LOC of glue,
+      no pycryptodome). Proven byte-exact.
+    - **A**: `eciespy` (`ecies`) — zero crypto code, pulls `coincurve` +
+      `pycryptodome`. Proven byte-exact with its default config.
+  ⏳ Awaiting user's dependency choice before finalizing `crypto.py` + interop
+  test. Golden fixture committed at `tests/fixtures/node_interop/`.
 - (log resolved ⚠️VERIFY answers and any dependency changes here as they land)

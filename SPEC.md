@@ -80,45 +80,55 @@ uppercased env name is the suffix on `DOTENV_PUBLIC_KEY_*` / `DOTENV_PRIVATE_KEY
 
 ## 3. Cryptography (ECIES)
 
-The single most interop-critical section. Everything here must match Node
-dotenvx exactly.
+The single most interop-critical section. **RESOLVED** against dotenvx 2.1.5 /
+`@dotenvx/primitives` 1.7.1 (which bundles `eciesjs`), and confirmed by
+round-tripping real Node-produced ciphertext in `tests/fixtures/` (see §9).
 
 ### 3.1 Curve & keys
 - Curve: **secp256k1**.
-- Private key: 32-byte scalar, encoded as lowercase hex. **⚠️ VERIFY** length/
-  encoding (with or without prefix).
-- Public key: **compressed** SEC1 point (33 bytes), lowercase hex. **⚠️ VERIFY**
-  compressed vs. uncompressed.
+- Private key (`DOTENV_PRIVATE_KEY`): 32-byte scalar, **lowercase hex, no
+  prefix** (64 hex chars).
+- Public key (`DOTENV_PUBLIC_KEY`): **compressed** SEC1 point (33 bytes → 66 hex
+  chars, `02`/`03` prefix), lowercase hex. Derived from the private key.
 
-### 3.2 Scheme
-ECIES, matching the `eciesjs` defaults Node dotenvx uses:
-- Generate an ephemeral secp256k1 keypair per encryption.
-- ECDH between the ephemeral private key and the recipient public key →
-  shared secret.
-- **KDF** derives a symmetric key from the shared secret. **⚠️ VERIFY** the KDF
-  (HKDF-SHA256?), salt/info parameters, and whether the ephemeral public key is
-  hashed in.
-- **Symmetric cipher**: **AES-256-GCM**. **⚠️ VERIFY** nonce length (12 vs 16),
-  tag length (16), and AAD (likely none).
-- **Wire layout** of the encrypted blob: `ephemeral_pubkey || nonce || tag ||
-  ciphertext` (order/segmentation) — **⚠️ VERIFY** exact concatenation order.
+### 3.2 Scheme (ECIES, eciesjs defaults)
+Per-value encryption. All parameters below are the confirmed dotenvx defaults:
 
-> These must be pinned by reading `eciesjs` + dotenvx and confirmed with a
-> round-trip test against real Node-produced ciphertext. Do not ship crypto on
-> assumptions.
+1. Generate an ephemeral secp256k1 keypair per value.
+2. **ECDH**: `shared_point = ephemeral_sk · receiver_pk`, serialized **uncompressed**
+   (65 bytes, `0x04 ‖ X ‖ Y`) — the *full point*, not the x-only secret.
+3. **KDF**: `key = HKDF-SHA256(IKM, salt="", info="", L=32)` where
+   `IKM = ephemeral_pubkey_uncompressed(65) ‖ shared_point(65)`.
+   (Empty salt ≡ 32 zero bytes here, since HMAC zero-pads to its block size.)
+4. **Symmetric**: **AES-256-GCM**, **16-byte** nonce/IV, **16-byte** tag, no AAD.
+
+**Wire layout of the blob** (confirmed by byte measurement):
+```
+ephemeral_pubkey (65, uncompressed 0x04‖X‖Y)  ‖  nonce (16)  ‖  tag (16)  ‖  ciphertext (N)
+```
+Note the **tag precedes the ciphertext**. pyca `cryptography`'s AESGCM expects
+`ciphertext ‖ tag`, so reassemble as `ct + tag` when using it.
+
+> Implementation note: pyca `cryptography` alone **cannot** produce this — its
+> `exchange(ECDH())` returns only the x-coordinate, and it exposes no raw EC
+> point multiplication. secp256k1 point math requires **`coincurve`**
+> (libsecp256k1). HKDF + AES-GCM can still come from pyca `cryptography`.
+> See PLAN.md M1 decision for the chosen dependency set.
 
 ### 3.3 Encrypted value encoding
-- Each encrypted value in `.env` is the string `encrypted:` + base64 of the
-  blob from §3.2. **⚠️ VERIFY** the base64 variant (standard vs. url-safe) and
-  the exact prefix.
+Each encrypted value in `.env` is `encrypted:` + **standard base64** (with `+`,
+`/`, `=` padding) of the §3.2 blob. Node **preserves the original quote style**
+around the value: `K=encrypted:…`, `K="encrypted:…"`, `K='encrypted:…'`.
 
 ### 3.4 Decryption resolution
 For a given key:
-1. If a `_PLAIN` override / plaintext value is present, use it. **⚠️ VERIFY**.
+1. If a `_PLAIN` override / plaintext value is present, use it. **⚠️ VERIFY**
+   exact `_PLAIN` semantics.
 2. Else if the value is `encrypted:…`, find the matching
    `DOTENV_PRIVATE_KEY[_<ENV>]` and decrypt.
-3. Missing private key → error unless `--ignore`/non-strict suppresses it.
-   **⚠️ VERIFY** default behavior.
+3. Missing private key → dotenvx raises a `missingPrivateKey` error; a wrong key
+   raises `wrongPrivateKey` (GCM auth failure). `--ignore`/non-strict behavior
+   **⚠️ VERIFY**.
 
 ---
 
