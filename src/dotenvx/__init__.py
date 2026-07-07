@@ -15,7 +15,18 @@ from dotenvx.keys import find_private_key, keynames
 from dotenvx.parser import resolve
 from dotenvx.transforms import SetResult, set_value
 
-__all__ = ["ConfigResult", "SetResult", "__version__", "config", "get", "parse", "set"]
+__all__ = [
+    "ConfigResult",
+    "SetResult",
+    "__version__",
+    "config",
+    "dotenv_values",
+    "find_dotenv",
+    "get",
+    "load_dotenv",
+    "parse",
+    "set",
+]
 
 __version__ = "0.0.1"
 
@@ -140,3 +151,70 @@ def set(  # noqa: A001 - matches dotenvx's own `set` name (SPEC.md §7)
     ``_PLAIN`` for the same effect (dotenvx's own convention).
     """
     return set_value(path, key, value, encrypt=encrypt, env_keys_path=env_keys_path)
+
+
+# --- python-dotenv compatibility shim (SPEC.md §7) --------------------------
+#
+# Lets code written against `python-dotenv` switch with a single import-line
+# change: `from dotenv import load_dotenv` -> `from dotenvx import load_dotenv`.
+#
+# Simplification: python-dotenv's `find_dotenv()` walks up from the *caller's*
+# file location by default (via stack inspection), using the cwd only when
+# `usecwd=True`. We always search from the cwd — documented here rather than
+# silently deviating.
+
+
+def find_dotenv(
+    filename: str = ".env",
+    raise_error_if_not_found: bool = False,
+    usecwd: bool = False,  # noqa: ARG001 - accepted for signature compatibility; always cwd-based
+) -> str:
+    """python-dotenv-compatible: search upward from cwd for ``filename``.
+
+    Returns the found path, or ``""`` if not found (unless
+    ``raise_error_if_not_found``, matching python-dotenv).
+    """
+    current = Path.cwd()
+    while True:
+        candidate = current / filename
+        if candidate.is_file():
+            return str(candidate)
+        if current.parent == current:
+            break
+        current = current.parent
+
+    if raise_error_if_not_found:
+        raise OSError(f"file not found: {filename}")
+    return ""
+
+
+def load_dotenv(
+    dotenv_path: str | os.PathLike[str] | None = None,
+    *,
+    override: bool = False,
+    **_kwargs: object,
+) -> bool:
+    """python-dotenv-compatible ``load_dotenv``; loads into ``os.environ``.
+
+    Returns ``True`` if a file was found and loaded, ``False`` otherwise
+    (matches python-dotenv's return semantics). Unrecognized python-dotenv
+    kwargs (``verbose``, ``interpolate``, ``encoding``) are accepted and
+    ignored rather than raising, to ease drop-in migration.
+    """
+    path = dotenv_path or find_dotenv() or ".env"
+    if not Path(path).is_file():
+        return False
+    config(path, overload=override)
+    return True
+
+
+def dotenv_values(
+    dotenv_path: str | os.PathLike[str] | None = None,
+    **_kwargs: object,
+) -> dict[str, str]:
+    """python-dotenv-compatible ``dotenv_values``: parse without touching env."""
+    path = dotenv_path or find_dotenv() or ".env"
+    file_path = Path(path)
+    if not file_path.is_file():
+        return {}
+    return parse(file_path.read_text(encoding="utf-8"), process_env=dict(os.environ))

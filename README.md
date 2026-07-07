@@ -5,11 +5,12 @@ anywhere, multiple environments, and built-in encryption. Files and keys are
 byte-for-byte interoperable with the Node.js `dotenvx` CLI: a `.env` file
 encrypted by Node `dotenvx` decrypts with `python-dotenvx`, and vice versa.
 
-> **Status: pre-alpha, under active construction.** Parsing, interpolation,
-> encryption, and the `run`/`get`/`set`/`encrypt`/`decrypt`/`keypair` CLI
-> commands all work today (see [`PLAN.md`](./PLAN.md) for what's built vs. in
-> progress — `ls`/`gitignore`/`precommit`/`prebuild` are next). See
-> [`SPEC.md`](./SPEC.md) for the full behavior contract and
+> **Status: pre-1.0, functionally complete.** The full CLI (`run`, `get`,
+> `set`, `encrypt`, `decrypt`, `keypair`, `ls`, `gitignore`, `precommit`,
+> `prebuild`) and library API (`config`, `parse`, `get`, `set`, plus a
+> `python-dotenv` compatibility shim) all work today, verified against the
+> real Node CLI. Not yet published to PyPI. See [`PLAN.md`](./PLAN.md) for
+> build history, [`SPEC.md`](./SPEC.md) for the full behavior contract, and
 > [`CLAUDE.md`](./CLAUDE.md) for the development setup.
 
 ## Install
@@ -62,6 +63,18 @@ values = dotenvx.parse("API_KEY=abc123\nGREETING=Hello ${NAME:-World}\n")
 `config()` accepts a list of paths (mirroring the CLI's repeatable `-f`), an
 `overload` flag, and an `environ` mapping (defaults to `os.environ`; pass a
 plain `dict` in tests to avoid touching the real process environment).
+
+### Migrating from `python-dotenv`
+
+Swap the import — `load_dotenv`/`dotenv_values`/`find_dotenv` work as drop-in
+replacements:
+
+```python
+# before: from dotenv import load_dotenv
+from dotenvx import load_dotenv
+
+load_dotenv()  # same call sites, now with dotenvx's encryption support
+```
 
 ## `.env` syntax
 

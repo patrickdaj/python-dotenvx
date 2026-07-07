@@ -28,7 +28,7 @@ No milestone advances until steps 3 + 4 are green.
 - [x] **M6 — CLI core**: `run`, `get`, `set`.
 - [x] **M7 — CLI crypto**: `encrypt`, `decrypt`, `keypair`.
 - [x] **M8 — CLI utilities**: `ls`, `gitignore`, `precommit`, `prebuild`.
-- [ ] **M9 — Compat & polish**: python-dotenv shim, docs, full-suite green.
+- [x] **M9 — Compat & polish**: python-dotenv shim, docs, full-suite green.
 
 ## Decisions & notes
 
@@ -153,4 +153,23 @@ No milestone advances until steps 3 + 4 are green.
   logic is a faithful port (`git rev-parse --is-inside-work-tree` +
   `git diff HEAD --name-only`) and is tested against a real git repo
   (staged vs. unstaged plaintext `.env`), not mocked.
+- **M9 (compat & polish)**: added `load_dotenv()`/`dotenv_values()`/
+  `find_dotenv()` to `__init__.py` as a python-dotenv migration shim (change
+  one import line, keep call sites). Documented simplification: real
+  python-dotenv's `find_dotenv()` walks up from the *caller's* file location
+  by default (via stack inspection) and only uses cwd when `usecwd=True`; ours
+  always searches from cwd. `load_dotenv`/`dotenv_values` accept and ignore
+  unrecognized python-dotenv kwargs (`verbose`, `interpolate`, `encoding`)
+  rather than raising, to ease drop-in migration. README kept current
+  throughout the build (CLI + library examples for every milestone, each
+  verified by actually running it — not just described) rather than treated
+  as an afterthought; SPEC.md §10 open-questions list updated to reflect
+  what's genuinely still deferred (`--ignore`/`--strict` flags, `--convention`
+  presets, `.env.vault`) vs. resolved.
+  **All 9 milestones complete.** 146 tests passing, 97% coverage, ruff/mypy
+  clean. Full CLI parity (`run`/`get`/`set`/`encrypt`/`decrypt`/`keypair`/
+  `ls`/`gitignore`/`precommit`/`prebuild`) and library API (`config`/`parse`/
+  `get`/`set` + python-dotenv shim), with crypto interop proven
+  bidirectionally against the real Node CLI throughout. Not yet published to
+  PyPI — see SPEC.md §10 for what's deliberately still out of scope for v1.
 - (log resolved ⚠️VERIFY answers and any dependency changes here as they land)

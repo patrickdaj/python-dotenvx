@@ -356,15 +356,18 @@ Consolidated list of things to resolve before/while implementing (all the
 confirmed): ECIES parameters/wire format (§3, M1); `_PLAIN` semantics (§2.1,
 M5 research — it's just a naming convention); command-substitution default
 (§4, M3 — on by default, errors swallowed); default precedence /
-`--overload` naming (§5, M3/M4 — confirmed against the real CLI).
+`--overload` naming (§5, M3/M4 — confirmed against the real CLI);
+python-dotenv compatibility surface (§7, M9 — `load_dotenv`/`dotenv_values`/
+`find_dotenv`, documented simplification: `find_dotenv` always searches from
+cwd rather than the caller's file location).
 
-Still open:
+Still open (genuinely deferred, not blocking core parity):
 
-1. `--ignore`/non-strict behavior for decryption errors (§3.4) — CLI-level,
-   relevant once `run`/`--strict` land (M6).
-2. Which `--convention` presets to support in v1 (§5) — deferred until CLI
-   flag work (M6+).
-3. python-dotenv compatibility surface — how far to go (§7) — decide when
-   implementing the library API's polish pass (M9).
-4. `.env.vault` legacy support — in or out (§1) — decide if/when a parity
-   target needs it; default remains skip.
+1. `--ignore`/`--strict` CLI flags for decryption/missing-file errors (§3.4,
+   §8) — every command currently reports errors and continues (non-strict
+   default behavior only); no `--strict`-to-exit-nonzero or `--ignore
+   <code>`-to-suppress flags exist yet.
+2. `--convention` presets (Next.js, dotenv-flow, etc.) (§5) — not
+   implemented; only explicit repeated `-f` is supported.
+3. `.env.vault` legacy support — out, per §1's non-goals (unchanged; revisit
+   only if a real parity target needs it).
