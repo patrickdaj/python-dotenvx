@@ -23,7 +23,7 @@ No milestone advances until steps 3 + 4 are green.
 - [x] **M2 — Parser (plaintext)**: `KEY=VALUE`, comments, quotes, `export`, multiline.
 - [x] **M3 — Interpolation**: `${VAR}`/`$VAR`, `:-`/`-`, `:+`/`+`, and `$(command)`
   substitution (not deferred — confirmed always-on in real dotenvx).
-- [ ] **M4 — Library API**: `parse()` / `config()` + precedence / `--overload` into `os.environ`.
+- [x] **M4 — Library API**: `parse()` / `config()` + precedence / `--overload` into `os.environ`.
 - [ ] **M5 — Encrypted `.env`**: `DOTENV_PUBLIC_KEY`, `encrypted:` values, `.env.keys` resolution wired into parse/config.
 - [ ] **M6 — CLI core**: `run`, `get`, `set`.
 - [ ] **M7 — CLI crypto**: `encrypt`, `decrypt`, `keypair`.
@@ -62,4 +62,10 @@ No milestone advances until steps 3 + 4 are green.
   faithfully (line-by-line comments cite the JS source); `resolve()` is the
   Python equivalent of `parseWithRing` (minus decryption, which M5 wires in).
   `_PLAIN` key semantics deliberately deferred to M5.
+- **M4 (library API)**: `config()` supports repeated `path` (list) mirroring
+  dotenvx's repeatable `-f`; multi-file precedence (first-file-wins by
+  default, last-file-wins under `--overload`) verified against the real CLI
+  (`dotenvx run -f a -f b`). `environ` param defaults to `os.environ` but is
+  injectable for tests. `get()`/`set()` intentionally deferred — no
+  half-built stubs; they land with the CLI commands that need them (M6).
 - (log resolved ⚠️VERIFY answers and any dependency changes here as they land)

@@ -1,11 +1,85 @@
 """python-dotenvx — a Python port of dotenvx.
 
-Public API surface is filled in across milestones (see PLAN.md). For now only
-the version is exported so the package and CLI are importable.
+Public API surface grows across milestones (see PLAN.md); ``get``/``set``
+land alongside their CLI commands. For now: ``parse`` and ``config``.
 """
 
 from __future__ import annotations
 
-__all__ = ["__version__"]
+import os
+from collections.abc import MutableMapping, Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from dotenvx.parser import resolve
+
+__all__ = ["__version__", "ConfigResult", "config", "parse"]
 
 __version__ = "0.0.1"
+
+
+def parse(
+    src: str | bytes,
+    *,
+    process_env: MutableMapping[str, str] | None = None,
+    overload: bool = False,
+) -> dict[str, str]:
+    """Parse + interpolate ``src`` (SPEC.md §2/§4) without touching ``os.environ``.
+
+    ``process_env`` supplies the values ``${VAR}``/precedence resolve against;
+    it defaults to an empty mapping, not ``os.environ`` — use :func:`config`
+    to load into the real process environment.
+    """
+    if isinstance(src, bytes):
+        src = src.decode("utf-8")
+    return resolve(src, process_env=dict(process_env or {}), overload=overload)
+
+
+@dataclass
+class ConfigResult:
+    """Mirrors dotenvx's ``config()`` return shape: parsed/injected/existed/errors."""
+
+    parsed: dict[str, str] = field(default_factory=dict)
+    injected: dict[str, str] = field(default_factory=dict)
+    existed: dict[str, str] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+
+
+def config(
+    path: str | os.PathLike[str] | Sequence[str | os.PathLike[str]] = ".env",
+    *,
+    overload: bool = False,
+    encoding: str = "utf-8",
+    environ: MutableMapping[str, str] | None = None,
+) -> ConfigResult:
+    """Load, decrypt (once M5 lands), and interpolate ``.env`` file(s) into ``environ``.
+
+    ``path`` may be repeated (a list) to mirror dotenvx's repeatable ``-f``
+    flag: earlier files win over later ones unless ``overload`` is set, in
+    which case later files win (SPEC.md §5, confirmed against the real CLI).
+    ``environ`` defaults to ``os.environ`` (mutated in place, like Node's
+    ``process.env``); pass a plain ``dict`` in tests to avoid touching it.
+    """
+    paths = [path] if isinstance(path, (str, os.PathLike)) else list(path)
+    target = os.environ if environ is None else environ
+
+    result = ConfigResult()
+    for p in paths:
+        file_path = Path(p)
+        if not file_path.is_file():
+            result.errors.append(f"missing file ({file_path})")
+            continue
+
+        before = dict(target)
+        src = file_path.read_text(encoding=encoding)
+        file_parsed = resolve(src, process_env=dict(target), overload=overload)
+
+        for name, value in file_parsed.items():
+            result.parsed[name] = value
+            if name in before and not overload:
+                result.existed[name] = before[name]
+            else:
+                result.injected[name] = value
+                target[name] = value
+
+    return result
