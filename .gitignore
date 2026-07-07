@@ -1,0 +1,28 @@
+# dotenvx secrets — never commit these
+.env
+.env.*
+!.env.example
+!.env.vault
+.env.keys
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# test interop fixtures may live under tests/fixtures/ and ARE committed
+# (they use throwaway keys) — do not let the .env* rules above swallow them
+!tests/fixtures/**
