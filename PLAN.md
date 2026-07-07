@@ -25,7 +25,7 @@ No milestone advances until steps 3 + 4 are green.
   substitution (not deferred — confirmed always-on in real dotenvx).
 - [x] **M4 — Library API**: `parse()` / `config()` + precedence / `--overload` into `os.environ`.
 - [x] **M5 — Encrypted `.env`**: `DOTENV_PUBLIC_KEY`, `encrypted:` values, `.env.keys` resolution wired into parse/config.
-- [ ] **M6 — CLI core**: `run`, `get`, `set`.
+- [~] **M6 — CLI core**: `run`, `get` done; `set` not yet (see notes below).
 - [ ] **M7 — CLI crypto**: `encrypt`, `decrypt`, `keypair`.
 - [ ] **M8 — CLI utilities**: `ls`, `gitignore`, `precommit`, `prebuild`.
 - [ ] **M9 — Compat & polish**: python-dotenv shim, docs, full-suite green.
@@ -83,4 +83,24 @@ No milestone advances until steps 3 + 4 are green.
   fixture (`tests/test_encrypted_config.py`), not just unit-level crypto.
   `_PLAIN` resolved as a pure naming convention (any key ending `_PLAIN` is
   skipped by `encrypt`/`set` — not implemented yet since those are M7).
+- **M6 (CLI core, partial)**: read `cli/actions/run.js`, `get.js`, and
+  `helpers/executeCommand.js` directly. `run`: `-- command` via Typer's
+  `list[str] | None` argument + `ignore_unknown_options=True`; child process
+  inherits the (already-mutated) `os.environ` implicitly — no explicit `env=`
+  needed, since `config()` already injected into it, matching how dotenvx's
+  own `execa` call is a same-process env inherit, not a distinct merge.
+  Exit code propagates via `subprocess.run(...).returncode`. `get`: JSON
+  output by default (matches real CLI), `--format shell/colon/eval`, single-
+  key lookup prints `""` for a missing key (confirmed from `get.js`); uses a
+  **snapshot** of `os.environ` (not the real one) so `${VAR}` expansion still
+  sees real env vars without `get` leaving side effects. Verified both via
+  pytest (`test_cli_run_get.py`, note: subprocess-inherited stdout needs
+  `capfd`, not Typer's `CliRunner.result.stdout`, which only captures Python-
+  level `sys.stdout`) and manually against real command execution.
+  **`set` deferred** — it requires an "upsert" that mutates a `.env` file's
+  raw text in place (add/update one `KEY=value` line while preserving
+  comments/formatting elsewhere, generating a keypair + `.env.keys` entry on
+  first encryption). That's a distinct chunk of work from `run`/`get`; will
+  implement + gate it in the next pass alongside/before M7's `encrypt`/
+  `decrypt` (which need the same upsert machinery).
 - (log resolved ⚠️VERIFY answers and any dependency changes here as they land)
