@@ -131,6 +131,22 @@ transforms.decrypt_file(".env")            # inverse
 transforms.get_keypair(".env")             # KeyPairEntry(public_key=..., private_key=...)
 ```
 
+## Keeping secrets out of git
+
+```bash
+uv run dotenvx ls                  # list every .env* file in the tree
+uv run dotenvx gitignore           # add .env* to .gitignore (and .dockerignore
+                                    # /.npmignore/.vercelignore, if present)
+uv run dotenvx precommit --install # install a git pre-commit hook
+uv run dotenvx precommit           # check staged .env* files are encrypted/ignored
+uv run dotenvx prebuild            # same check, for Docker builds (.dockerignore)
+```
+
+`precommit`/`prebuild` fail (non-zero exit) on the first plaintext `.env*`
+file that isn't covered by `.gitignore`/`.dockerignore` — see
+[`SPEC.md` §6](./SPEC.md) for the one documented gap (a simplified ignore-
+pattern matcher, not the full `.gitignore` spec).
+
 ## Development
 
 Requires [uv](https://docs.astral.sh/uv/).

@@ -8,11 +8,12 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from pathlib import Path
 
 import typer
 
 import dotenvx
-from dotenvx import __version__, transforms
+from dotenvx import __version__, ext, transforms
 
 app = typer.Typer(
     name="dotenvx",
@@ -220,6 +221,72 @@ def keypair_command(
         typer.echo(" ".join(f"{k}:{v or ''}" for k, v in out.items()))
     else:
         typer.echo(json.dumps(out, indent=2 if pretty_print else None))
+
+
+@app.command(name="ls")
+def ls_command(
+    directory: str = typer.Argument(".", help="Directory to list .env files from."),  # noqa: B008
+    env_file: list[str] = typer.Option(  # noqa: B008
+        [".env*"], "-f", "--env-file", help="Pattern(s) to include."
+    ),
+    exclude_env_file: list[str] = typer.Option(  # noqa: B008
+        [], "-ef", "--exclude-env-file", help="Pattern(s) to exclude."
+    ),
+) -> None:
+    """Print all .env files found under DIRECTORY (SPEC.md §6)."""
+    for filepath in ext.ls(
+        directory, env_file=env_file, exclude_env_file=exclude_env_file
+    ):
+        typer.echo(filepath)
+
+
+@app.command(name="gitignore")
+def gitignore_command(
+    pattern: list[str] = typer.Option(  # noqa: B008
+        [".env*"], "--pattern", help="Pattern(s) to ignore."
+    ),
+) -> None:
+    """Append PATTERN(s) to .gitignore (and .dockerignore/.npmignore/.vercelignore)."""
+    result = ext.gitignore(pattern)
+    if result.changed_files:
+        typer.echo(f"dotenvx: ignored {pattern} ({', '.join(result.changed_files)})")
+    for filename in result.unchanged_files:
+        typer.echo(f"dotenvx: no change ({filename})")
+
+
+@app.command(name="precommit")
+def precommit_command(
+    directory: str = typer.Argument(  # noqa: B008
+        ".", help="Directory to prevent committing .env files from."
+    ),
+    install: bool = typer.Option(
+        False, "-i", "--install", help="Install to .git/hooks/pre-commit."
+    ),
+) -> None:
+    """Prevent committing plaintext .env files (SPEC.md §6)."""
+    if install:
+        typer.echo(f"dotenvx: {ext.install_precommit_hook(Path(directory) / '.git')}")
+        return
+
+    result = ext.precommit_check(directory)
+    for warning in result.warnings:
+        typer.echo(f"dotenvx: warning: {warning}", err=True)
+    typer.echo(f"dotenvx: {result.message}")
+    if not result.ok:
+        raise typer.Exit(1)
+
+
+@app.command(name="prebuild")
+def prebuild_command(
+    directory: str = typer.Argument(".", help="Directory to check."),  # noqa: B008
+) -> None:
+    """Prevent plaintext .env files from being baked into a Docker image."""
+    result = ext.prebuild_check(directory)
+    for warning in result.warnings:
+        typer.echo(f"dotenvx: warning: {warning}", err=True)
+    typer.echo(f"dotenvx: {result.message}")
+    if not result.ok:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

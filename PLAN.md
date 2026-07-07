@@ -27,7 +27,7 @@ No milestone advances until steps 3 + 4 are green.
 - [x] **M5 — Encrypted `.env`**: `DOTENV_PUBLIC_KEY`, `encrypted:` values, `.env.keys` resolution wired into parse/config.
 - [x] **M6 — CLI core**: `run`, `get`, `set`.
 - [x] **M7 — CLI crypto**: `encrypt`, `decrypt`, `keypair`.
-- [ ] **M8 — CLI utilities**: `ls`, `gitignore`, `precommit`, `prebuild`.
+- [x] **M8 — CLI utilities**: `ls`, `gitignore`, `precommit`, `prebuild`.
 - [ ] **M9 — Compat & polish**: python-dotenv shim, docs, full-suite green.
 
 ## Decisions & notes
@@ -130,4 +130,27 @@ No milestone advances until steps 3 + 4 are green.
   monkeypatch*, not direct `os.environ` mutations from production code.
   Fixed with an autouse `tests/conftest.py` fixture that snapshots/restores
   `os.environ` around every test — not a product bug, a test-hygiene gap.
+- **M8 (`ls`/`gitignore`/`precommit`/`prebuild`)**: read `resolvers/ls.js`,
+  `ext/gitignore.js`, `helpers/installPrecommitHook.js`,
+  `services/precommit.js`/`prebuild.js`, and `src/sealed.js` directly. New
+  `ext.py`: `ls()` (recursive `.env*` search skipping `node_modules`/`.git`),
+  `sealed()` (a file is "sealed" iff every non-public-key/non-`_PLAIN` value
+  is `encrypted:`), `gitignore()` (only `.gitignore` is created if missing;
+  `.dockerignore`/`.npmignore`/`.vercelignore` are updated only if already
+  present — confirmed idempotent), `install_precommit_hook()` (byte-matched
+  hook script, appends to an existing unrelated hook rather than clobbering
+  it), and `precommit_check()`/`prebuild_check()` (fail-fast on the first
+  plaintext, non-ignored `.env*` file — matches the real tool's
+  forEach-throws-stops-the-loop behavior).
+  **Deliberate, documented simplification**: the real `precommit`/`prebuild`
+  checks use the full `.gitignore`-spec `ignore` npm package; we use Python's
+  stdlib `fnmatch` against each ignore-file line instead. This correctly
+  handles the common `.env*`-style default patterns but doesn't implement
+  gitignore negation (`!pattern`), directory-anchored patterns, or `**`
+  recursion semantics. Documented in `ext.py`'s module docstring — flagging
+  this rather than silently faking full fidelity.
+  `precommit_check()`'s git-diff-based "is this file about to be committed"
+  logic is a faithful port (`git rev-parse --is-inside-work-tree` +
+  `git diff HEAD --name-only`) and is tested against a real git repo
+  (staged vs. unstaged plaintext `.env`), not mocked.
 - (log resolved ⚠️VERIFY answers and any dependency changes here as they land)
